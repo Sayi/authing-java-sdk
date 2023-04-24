@@ -11,6 +11,7 @@ import cn.hutool.core.codec.Base64Encoder;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.Header;
+import cn.hutool.json.JSONObject;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSObject;
 import com.nimbusds.jose.JWSVerifier;
@@ -180,27 +181,44 @@ public class AuthenticationClient extends BaseClient {
   /**
    * 通过远端服务验证票据合法性
    */
-  public String validateTicketV2(String ticket, String service, String format) throws Exception {
-    if (format != "XML" && format != "JSON") {
-      throw new Exception("format 参数可选值为 XML、JSON，请检查输入");
+  public CasingUserInfo validateTicketV2(String ticket, String service, String format) throws Exception {
+        if (format != "XML" && format != "JSON") {
+            throw new Exception("format 参数可选值为 XML、JSON，请检查输入");
+        }
+        String url =
+                "/serviceValidate";
+
+        Map<String, Object> paramsMap = new HashMap<>();
+        paramsMap.put("ticket", ticket);
+        paramsMap.put("service", service);
+        paramsMap.put("format", format);
+
+        url = HttpUtils.buildUrlWithQueryParams(url, paramsMap);
+
+        AuthingRequestConfig config = new AuthingRequestConfig();
+        config.setUrl(url);
+        config.setMethod("GET");
+
+        String response = request(config);
+
+        cn.hutool.json.JSONObject jsonObject = cn.hutool.json.XML.toJSONObject(response);
+        CasingUserInfo user = new CasingUserInfo();
+        String error = jsonObject.getJSONObject("cas:serviceResponse").getStr("cas:authenticationFailure");
+        if (null != error) {
+            throw new IllegalArgumentException(error);
+        }
+        JSONObject userJson = jsonObject.getJSONObject("cas:serviceResponse").getJSONObject(
+                "cas:authenticationSuccess");
+        user.setId(userJson.getStr("cas:user"));
+        Map map = userJson.get("cas:attributes", Map.class);
+        Map<String, Object> convertMap = new HashMap<>();
+        map.forEach((k,v)->{
+            convertMap.put(k.toString().substring("cas:".length()), v);
+        });
+        user.setAttributes(convertMap);
+        return user;
+//        return response;
     }
-    String url =
-        this.options.getAppHost() + "/cas-idp/" + this.options.getAppId() + "/serviceValidate";
-
-    Map<String, Object> paramsMap = new HashMap<>();
-    paramsMap.put("ticket", ticket);
-    paramsMap.put("service", service);
-    paramsMap.put("format", format);
-
-    url = HttpUtils.buildUrlWithQueryParams(url, paramsMap);
-
-    AuthingRequestConfig config = new AuthingRequestConfig();
-    config.setUrl(url);
-
-    String response = request(config);
-
-    return response;
-  }
 
   /**
    * 生成 PKCE 校验码摘要值
@@ -246,14 +264,14 @@ public class AuthenticationClient extends BaseClient {
   }
 
   private String buildCasLogoutUrl(BuildLogoutUrlParams params) {
-    String url = "";
-    if (StrUtil.isNotBlank(params.getPostLogoutRedirectUri())) {
-      url = this.options.getAppHost() + "/cas-idp/logout?url=" + params.getPostLogoutRedirectUri();
-    } else {
-      url = this.options.getAppHost() + "/cas-idp/logout";
+        String url = "";
+        if (StrUtil.isNotBlank(params.getPostLogoutRedirectUri())) {
+            url = this.options.getAppHost() + "/logout?service=" + params.getPostLogoutRedirectUri();
+        } else {
+            url = this.options.getAppHost() + "/logout";
+        }
+        return url;
     }
-    return url;
-  }
 
   private String buildOidcLogoutUrl(BuildLogoutUrlParams params) throws Exception {
     if ((params.getPostLogoutRedirectUri() != null && params.getIdTokenHint() == null) ||
@@ -391,27 +409,27 @@ public class AuthenticationClient extends BaseClient {
     return HttpUtils.buildUrlWithQueryParams(options.getAppHost() + "/oidc/auth", map);
   }
 
-  /**
-   * 拼接 CAS 协议授权链接
-   */
-  public String buildAuthorizeUrl(ICasParams params) {
-    if (options.getAppId() == null) {
-      throw new InvalidParameterException("请在初始化 AuthenticationClient 时传入 appId");
-    }
+    /**
+     * 拼接 CAS 协议授权链接
+     */
+    public String buildAuthorizeUrl(ICasParams params) {
+//    if (options.getAppId() == null) {
+//      throw new InvalidParameterException("请在初始化 AuthenticationClient 时传入 appId");
+//    }
 
-    if (!ProtocolEnum.CAS.getValue().equals(options.getProtocol())) {
-      throw new InvalidParameterException(
-          "初始化 AuthenticationClient 传入的 protocol 应为 ProtocolEnum.CAS 不应该为"
-              + options.getProtocol());
-    }
+        if (!ProtocolEnum.CAS.getValue().equals(options.getProtocol())) {
+            throw new InvalidParameterException(
+                    "初始化 AuthenticationClient 传入的 protocol 应为 ProtocolEnum.CAS 不应该为"
+                            + options.getProtocol());
+        }
 
-    if (StrUtil.isNotBlank(params.getService())) {
-      return options.getAppHost() + "/cas-idp/" + options.getAppId() + "?service="
-          + params.getService();
-    } else {
-      return options.getAppHost() + "/cas-idp/" + options.getAppId();
+        if (StrUtil.isNotBlank(params.getService())) {
+            return options.getAppHost() + "/login" + "?service="
+                    + params.getService();
+        } else {
+            return options.getAppHost() + "/login";
+        }
     }
-  }
 
   /**
    * 拼接 SAML 协议授权链接
